@@ -14,6 +14,8 @@ const patientProfileSchema = new mongoose.Schema({
   conditions: { type: String, default: "None" },
   allergies: { type: String, default: "None" },
   medications: { type: String, default: "None" },
+  height: { type: String }, // Stored as string to allow units if needed, or number
+  weight: { type: String },
 
   // Array to store hospital-specific data
   hospitalRecords: [{

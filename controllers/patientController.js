@@ -47,3 +47,33 @@ export const updateProfile = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+export const getPatientProfileById = async (req, res) => {
+  try {
+    // Check if user exists first
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const profile = await PatientProfile.findOne({ user: req.params.id }).populate("user", "name email mobile role");
+
+    // If profile doesn't exist, return basic user info with empty fields
+    if (!profile) {
+      return res.json({
+        user: user,
+        height: "",
+        weight: "",
+        medications: "",
+        address: "",
+        gender: "",
+        dob: ""
+      });
+    }
+
+    res.json(profile);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
