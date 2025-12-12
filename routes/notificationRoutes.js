@@ -1,0 +1,14 @@
+import express from "express";
+import { protect } from "../middleware/authMiddleware.js";
+import { getNotifications, markAsRead, markAllAsRead, deleteNotification, sendEmergencyAlert, deleteEmergencyAlerts } from "../controllers/notificationController.js";
+
+const router = express.Router();
+
+router.get("/", protect, getNotifications);
+router.put("/:id/read", protect, markAsRead);
+router.put("/read-all", protect, markAllAsRead);
+router.delete("/:id", protect, deleteNotification);
+router.delete("/type/emergency", protect, deleteEmergencyAlerts); // New route
+router.post("/emergency", protect, sendEmergencyAlert);
+
+export default router;

@@ -1,0 +1,46 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --detectOpenHandles",
+    "test:watch": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --watch",
+    "test:coverage": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --coverage",
+    "dev": "nodemon server.js",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.13.2",
+    "bcrypt": "^6.0.0",
+    "cloudinary": "^1.37.2",
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "express-validator": "^7.3.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.20.0",
+    "multer": "^2.0.2",
+    "multer-storage-cloudinary": "^4.0.0",
+    "nodemailer": "^7.0.10",
+    "socket.io": "^4.8.1",
+    "test": "^3.3.0"
+  },
+  "devDependencies": {
+    "artillery": "^2.0.27",
+    "cross-env": "^10.1.0",
+    "jest": "^30.2.0",
+    "k6": "^0.0.0",
+    "mongodb-memory-server": "^10.4.1",
+    "newman": "^6.0.0",
+    "nock": "^14.0.10",
+    "nodemon": "^3.1.11",
+    "sinon": "^21.0.0",
+    "supertest": "^7.1.4"
+  }
+}
