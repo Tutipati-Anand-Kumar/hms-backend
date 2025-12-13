@@ -21,8 +21,6 @@ function getLocalIp() {
   }
 }
 
-
-
 connectDB().then(() => {
   const PORT = process.env.PORT || 3000;
   const ip = getLocalIp();
