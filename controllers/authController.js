@@ -104,7 +104,7 @@ export const register = async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 };
 
@@ -135,7 +135,7 @@ export const sendOtp = async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 };
 
@@ -326,13 +326,13 @@ export const forgotPassword = async (req, res) => {
     await account.save();
 
     const allowedFrontends = process.env.FRONTEND_URL.split(",");
-  const origin = req.headers.origin;
+    const origin = req.headers.origin;
 
-  const frontend = allowedFrontends.includes(origin)
-    ? origin
-    : allowedFrontends[0];
+    const frontend = allowedFrontends.includes(origin)
+      ? origin
+      : allowedFrontends[0];
 
-  const resetURL = `${frontend}/reset-password/${resetToken}`;
+    const resetURL = `${frontend}/reset-password/${resetToken}`;
 
     const filePath = path.join(__dirname, "../templates/reset.html");
     let htmlMessage = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : `< p > Reset: ${resetURL}</p > `;
@@ -344,7 +344,7 @@ export const forgotPassword = async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 };
 
