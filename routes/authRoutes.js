@@ -9,7 +9,8 @@ import {
   logout,
   forgotPassword,
   resetPassword,
-  me
+  me,
+  checkUserExistence
 } from "../controllers/authController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import { registerValidator, loginValidator, otpSendValidator, otpVerifyValidator, refreshValidator, resetPwdValidator } from "../utils/validators.js";
@@ -24,6 +25,7 @@ router.post("/refresh", refreshValidator, refresh);
 router.post("/logout", logout);
 router.post("/forgot-password", forgotPassword);
 router.patch("/reset-password", resetPwdValidator, resetPassword);
+router.post("/check-user", checkUserExistence);
 
 router.get("/me", protect, me);
 

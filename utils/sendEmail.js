@@ -1,26 +1,34 @@
-// utils/sendEmail.js
 import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+dotenv.config();
 
 const sendEmail = async (to, subject, html) => {
-  console.log("Sending email to:", to);
+  try {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER, // Your Gmail address
+        pass: process.env.EMAIL_PASS, // Your Gmail APP PASSWORD (not login password)
+      },
+    });
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
+    console.log(`Attempting to send email via Gmail to: ${to}`);
 
-  const info = await transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to,
-    subject,
-    html,
-  });
+    // Setup email data
+    const mailOptions = {
+      from: `"MSureChain Support" <${process.env.EMAIL_USER}>`, // Valid sender name
+      to,
+      subject,
+      html
+    };
 
-  console.log("Email sent:", info.response);
-  return info;
+    const info = await transporter.sendMail(mailOptions);
+    console.log("Email sent successfully via Gmail:", info.messageId);
+    return info;
+  } catch (error) {
+    console.error("Error sending email via Gmail:", error);
+    throw error;
+  }
 };
 
 export default sendEmail;
