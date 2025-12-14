@@ -8,7 +8,8 @@ import {
   getHospital,
   patchHospital,
   addBranch,
-  listBranches
+  listBranches,
+  deleteHospital
 } from "../controllers/hospitalController.js";
 
 const router = express.Router();
@@ -18,7 +19,9 @@ router.get("/", listHospitals);
 router.get("/:id", getHospital);
 router.patch("/:id", protect, authorizeRoles("admin", "super-admin"), patchHospital);
 
+// ... (previous routes)
 router.post("/:id/branches", protect, authorizeRoles("admin", "super-admin"), addBranch);
 router.get("/:id/branches", listBranches);
+router.delete("/:id", protect, authorizeRoles("admin", "super-admin"), deleteHospital);
 
 export default router;

@@ -213,26 +213,72 @@ export const getConversations = async (req, res) => {
     }
 };
 
-// Delete Message (Soft delete for "Delete For Me", Hard delete if "Delete for Everyone" logic requested, but here we do soft for individual)
-// Updated to support Bulk Delete as well if needed, but keeping singular for now based on route
+// Edit Message
+export const editMessage = async (req, res) => {
+    try {
+        const { messageId } = req.params;
+        const { content } = req.body;
+        const currentUserId = req.user._id;
+
+        const message = await Message.findById(messageId);
+        if (!message) return res.status(404).json({ message: "Message not found" });
+
+        // Check ownership
+        if (message.sender.toString() !== currentUserId.toString()) {
+            return res.status(403).json({ message: "You can only edit your own messages" });
+        }
+
+        // Check time limit (24 hours)
+        const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+        if (new Date() - new Date(message.createdAt) > TWENTY_FOUR_HOURS) {
+            return res.status(400).json({ message: "You can only edit messages sent within 24 hours" });
+        }
+
+        message.content = content;
+        message.isEdited = true;
+        await message.save();
+
+        const populatedMessages = await populateMessages([message]);
+        const fullMessage = populatedMessages[0];
+
+        if (req.io) {
+            req.io.to(message.receiver.toString()).emit("message_updated", fullMessage);
+            req.io.to(message.sender.toString()).emit("message_updated", fullMessage);
+        }
+
+        res.json(fullMessage);
+    } catch (err) {
+        console.error("Edit Message Error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
+// Delete Message (Soft delete for "Delete For Me", Tombstone if "Delete for Everyone")
 export const deleteMessage = async (req, res) => {
     try {
         const { messageId } = req.params;
         const currentUserId = req.user._id;
-        const { deleteForEveryone } = req.body || {}; // Optional flag if we implement that
+        const { deleteForEveryone } = req.body || {};
 
         const message = await Message.findById(messageId);
         if (!message) return res.status(404).json({ message: "Message not found" });
 
         // Logic:
-        // 1. If "Delete for Everyone" AND user is sender -> Hard delete (or special flag)
+        // 1. If "Delete for Everyone" AND user is sender -> Content replacement (Tombstone)
         // 2. Else -> "Delete for Me" -> Add to hiddenFor
 
         if (deleteForEveryone && message.sender.toString() === currentUserId.toString()) {
-            await Message.findByIdAndDelete(messageId);
-            // Notify via socket for removal
+            message.content = "This message was deleted";
+            message.isDeleted = true;
+            await message.save();
+
+            const populatedMessages = await populateMessages([message]);
+            const fullMessage = populatedMessages[0];
+
             if (req.io) {
-                req.io.emit("message_deleted", { messageId });
+                // Emit update instead of delete, so clients show the tombstone
+                req.io.to(message.receiver.toString()).emit("message_updated", fullMessage);
+                req.io.to(message.sender.toString()).emit("message_updated", fullMessage);
             }
             return res.json({ message: "Message deleted for everyone" });
         }

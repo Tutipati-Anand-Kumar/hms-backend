@@ -32,7 +32,15 @@ const messageSchema = new mongoose.Schema({
     hiddenFor: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: "User" // Users who have "deleted" this message for themselves
-    }]
+    }],
+    isEdited: {
+        type: Boolean,
+        default: false
+    },
+    isDeleted: {
+        type: Boolean,
+        default: false
+    }
 }, { timestamps: true });
 
 export default mongoose.model("Message", messageSchema);

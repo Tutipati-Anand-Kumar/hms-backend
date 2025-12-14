@@ -10,7 +10,8 @@ import {
   updateHelpdeskProfile,
   helpdeskCreateDoctor,
   getHelpDeskById,
-  getHelpDeskByHospitalId
+  getHelpDeskByHospitalId,
+  getHelpDeskDoctors
 } from "../controllers/helpDeskController.js";
 import { deleteHospital } from "../controllers/hospitalController.js";
 
@@ -26,8 +27,9 @@ router.get("/profile/me", protect, helpdeskMe);
 router.put("/me", protect, authorizeRoles("helpdesk"), updateHelpdeskProfile);
 router.get("/dashboard", protect, authorizeRoles("helpdesk"), helpDeskDashboard);
 router.get("/hospital/:hospitalId", protect, getHelpDeskByHospitalId);
-router.get("/:id", protect, getHelpDeskById);
 router.post("/doctor", protect, authorizeRoles("helpdesk"), helpdeskCreateDoctor);
+router.get("/doctors", protect, authorizeRoles("helpdesk"), getHelpDeskDoctors);
+router.get("/:id", protect, getHelpDeskById);
 
 router.delete("/:id", protect, authorizeRoles("admin", "super-admin"), deleteHospital);
 

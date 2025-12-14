@@ -182,45 +182,46 @@ export const login = async (req, res) => {
       ]
     });
 
-    // 2. If not found in Users, try HelpDesk (usually mobile)
-    if (!user) {
-      const helpdesk = await HelpDesk.findOne({ mobile: identifier });
-      if (helpdesk) {
-        // Verify HelpDesk password
-        const matchHd = await bcrypt.compare(password, helpdesk.password);
-        if (!matchHd) return res.status(401).json({ message: "Invalid credentials" });
-
-        // Generate HelpDesk tokens
-        const accessToken = jwt.sign(
-          { id: helpdesk._id, role: "helpdesk", hospital: helpdesk.hospital },
-          process.env.JWT_SECRET,
-          { expiresIn: "15m" }
-        );
-        const refreshToken = await createRefreshToken(helpdesk);
-
-        return res.json({
-          tokens: { accessToken, refreshToken },
-          user: { id: helpdesk._id, name: helpdesk.name, role: "helpdesk", hospital: helpdesk.hospital }
-        });
+    if (user) {
+      // User found - Verify Password
+      const match = await bcrypt.compare(password, user.password);
+      if (!match) {
+        return res.status(401).json({ message: "Password is wrong" });
       }
 
-      return res.status(401).json({ message: "Invalid credentials" });
+      // Successful User Login
+      const accessToken = signAccessToken(user);
+      const refreshToken = await createRefreshToken(user);
+
+      return res.json({
+        tokens: { accessToken, refreshToken },
+        user: { id: user._id, name: user.name, role: user.role }
+      });
     }
 
-    // 3. User found - Verify Password
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) {
-      return res.status(401).json({ message: "Invalid credentials" });
+    // 2. If not found in Users, try HelpDesk (usually mobile)
+    const helpdesk = await HelpDesk.findOne({ mobile: identifier });
+    if (helpdesk) {
+      // Verify HelpDesk password
+      const matchHd = await bcrypt.compare(password, helpdesk.password);
+      if (!matchHd) return res.status(401).json({ message: "Password is wrong" });
+
+      // Generate HelpDesk tokens
+      const accessToken = jwt.sign(
+        { id: helpdesk._id, role: "helpdesk", hospital: helpdesk.hospital },
+        process.env.JWT_SECRET,
+        { expiresIn: "15m" }
+      );
+      const refreshToken = await createRefreshToken(helpdesk);
+
+      return res.json({
+        tokens: { accessToken, refreshToken },
+        user: { id: helpdesk._id, name: helpdesk.name, role: "helpdesk", hospital: helpdesk.hospital }
+      });
     }
 
-    // 4. Successful User Login
-    const accessToken = signAccessToken(user);
-    const refreshToken = await createRefreshToken(user);
-
-    res.json({
-      tokens: { accessToken, refreshToken },
-      user: { id: user._id, name: user.name, role: user.role }
-    });
+    // 3. User not found
+    return res.status(401).json({ message: "Mobile number is wrong" });
 
   } catch (err) {
     console.error("Login error:", err);

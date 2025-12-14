@@ -29,10 +29,10 @@ export const helpdeskLogin = asyncHandler(async (req, res) => {
   if (!mobile || !password) throw new ApiError(400, "mobile and password required");
 
   const helpdesk = await HelpDesk.findOne({ mobile });
-  if (!helpdesk) throw new ApiError(401, "Invalid credentials");
+  if (!helpdesk) throw new ApiError(401, "Mobile number is wrong");
 
   const match = await bcrypt.compare(password, helpdesk.password);
-  if (!match) throw new ApiError(401, "Invalid credentials");
+  if (!match) throw new ApiError(401, "Password is wrong");
 
   const accessToken = signAccessTokenForHelpDesk(helpdesk);
   const refreshToken = await createRefreshTokenForHelpDesk(helpdesk);
@@ -201,6 +201,20 @@ export const getHelpDeskById = asyncHandler(async (req, res) => {
   const helpdesk = await HelpDesk.findById(req.params.id).select("-password -refreshTokens");
   if (!helpdesk) throw new ApiError(404, "HelpDesk not found");
   res.json(helpdesk);
+});
+
+export const getHelpDeskDoctors = asyncHandler(async (req, res) => {
+  const helpdesk = req.helpDesk;
+  if (!helpdesk || !helpdesk.hospital) {
+    return res.status(404).json({ message: "Hospital not found for this helpdesk" });
+  }
+
+  // Find doctors associated with this hospital
+  const doctors = await DoctorProfile.find({ "hospitals.hospital": helpdesk.hospital })
+    .populate("user", "name email mobile avatar")
+    .select("specialties qualifications experienceStart bio profilePic availability");
+
+  res.json(doctors);
 });
 
 export const getHelpDeskByHospitalId = asyncHandler(async (req, res) => {
