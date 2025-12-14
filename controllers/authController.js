@@ -10,7 +10,6 @@ import { fileURLToPath } from "url";
 
 import User from "../models/User.js";
 import PatientProfile from "../models/PatientProfile.js";
-import DoctorProfile from "../models/DoctorProfile.js";
 import OTP from "../models/OTP.js";
 import HelpDesk from "../models/HelpDesk.js";
 import sendEmail from "../utils/sendEmail.js";
@@ -139,6 +138,27 @@ export const sendOtp = async (req, res) => {
   }
 };
 
+export const checkUserExistence = async (req, res) => {
+  const { email, mobile } = req.body;
+
+  try {
+    if (email) {
+      const existingEmail = await User.findOne({ email });
+      if (existingEmail) return res.status(200).json({ exists: true, field: 'email', message: 'Email already registered' });
+    }
+
+    if (mobile) {
+      const existingMobile = await User.findOne({ mobile });
+      if (existingMobile) return res.status(200).json({ exists: true, field: 'mobile', message: 'Mobile already registered' });
+    }
+
+    return res.status(200).json({ exists: false });
+  } catch (err) {
+    console.error("Check Existence Error:", err);
+    res.status(500).json({ message: "Server error checking user existence" });
+  }
+};
+
 
 // Verify OTP endpoint — accepts { mobile, otp }
 export const verifyOtp = async (req, res) => {
@@ -188,7 +208,7 @@ export const login = async (req, res) => {
       if (helpdesk) {
         // Verify HelpDesk password
         const matchHd = await bcrypt.compare(password, helpdesk.password);
-        if (!matchHd) return res.status(401).json({ message: "Invalid credentials" });
+        if (!matchHd) return res.status(401).json({ message: "Password is wrong" });
 
         // Generate HelpDesk tokens
         const accessToken = jwt.sign(
@@ -204,13 +224,13 @@ export const login = async (req, res) => {
         });
       }
 
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({ message: "Mobile number is wrong" });
     }
 
     // 3. User found - Verify Password
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({ message: "Password is wrong" });
     }
 
     // 4. Successful User Login
