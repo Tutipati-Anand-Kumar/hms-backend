@@ -178,7 +178,8 @@ export const checkSymptoms = async (req, res) => {
                 name: h.hospital?.name || "Unknown Hospital",
                 address: h.hospital?.address,
                 location: h.hospital?.location, // { lat, lng }
-                phone: h.hospital?.phone
+                phone: h.hospital?.phone,
+                consultationFee: h.consultationFee
             }))
         }));
 

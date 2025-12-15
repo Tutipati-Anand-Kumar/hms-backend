@@ -116,6 +116,16 @@ export const sendOtp = async (req, res) => {
     return res.status(400).json({ message: "mobile and email required" });
 
   try {
+    // Check if user already exists
+    const existingUser = await User.findOne({
+      $or: [{ email: email }, { mobile: mobile }]
+    });
+
+    if (existingUser) {
+      if (existingUser.email === email) return res.status(400).json({ message: "Email already registered" });
+      if (existingUser.mobile === mobile) return res.status(400).json({ message: "Mobile already registered" });
+    }
+
     const otpPlain = (Math.floor(100000 + Math.random() * 900000)).toString();
     const otpHash = crypto.createHash("sha256").update(otpPlain).digest("hex");
 
@@ -136,6 +146,25 @@ export const sendOtp = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server error", error: err.message });
+  }
+};
+
+export const checkExistence = async (req, res) => {
+  const { field, value } = req.body;
+  if (!field || !value) return res.status(400).json({ message: "Field and value required" });
+
+  try {
+    const query = {};
+    query[field] = value;
+    const exists = await User.findOne(query);
+
+    if (exists) {
+      return res.status(400).json({ message: `${field} already exists` });
+    }
+    return res.status(200).json({ message: "Available" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
