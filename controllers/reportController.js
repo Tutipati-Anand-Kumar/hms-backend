@@ -3,15 +3,42 @@ import Report from "../models/Report.js";
 // @desc    Upload file handler (after multer processes the file)
 // @route   POST /api/reports/upload
 // @access  Private
-export const uploadFile = (req, res) => {
+export const uploadFile = async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
     }
-    res.json({
-        message: "File uploaded successfully",
-        url: req.file.path,
-        public_id: req.file.filename
-    });
+
+    try {
+        const cloudinary = (await import("../config/cloudinary.js")).default;
+
+        // Use a stream upload since file is in memory (req.file.buffer)
+        const uploadStream = (buffer) => {
+            return new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                    {
+                        resource_type: "auto",
+                        folder: "hms_reports"
+                    },
+                    (error, result) => {
+                        if (error) return reject(error);
+                        resolve(result);
+                    }
+                );
+                stream.end(buffer);
+            });
+        };
+
+        const result = await uploadStream(req.file.buffer);
+
+        res.json({
+            message: "File uploaded successfully",
+            url: result.secure_url,
+            public_id: result.public_id
+        });
+    } catch (error) {
+        console.error("Cloudinary upload error:", error);
+        res.status(500).json({ message: "Upload failed" });
+    }
 };
 
 // @desc    Save report metadata to database
@@ -20,6 +47,15 @@ export const uploadFile = (req, res) => {
 export const saveReport = async (req, res) => {
     try {
         const { patientId, name, url, type, public_id, date, size, appointmentId } = req.body;
+
+        if (!url) {
+            console.error("Save Report Error: Missing URL in request body", req.body);
+            return res.status(400).json({ message: "Report URL is required" });
+        }
+
+        if (!patientId || !name || !type || !date) {
+            return res.status(400).json({ message: "Missing required fields: patientId, name, type, or date" });
+        }
 
         const report = new Report({
             patient: patientId,
@@ -44,6 +80,10 @@ export const saveReport = async (req, res) => {
         res.status(201).json(report);
     } catch (err) {
         console.error("Error saving report:", err);
+        if (err.name === 'ValidationError') {
+            const messages = Object.values(err.errors).map(val => val.message);
+            return res.status(400).json({ message: messages.join(', ') });
+        }
         res.status(500).json({ message: "Server error" });
     }
 };

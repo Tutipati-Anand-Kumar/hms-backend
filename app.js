@@ -3,6 +3,7 @@ import { Server } from "socket.io";
 import cors from "cors";
 import os from "os";
 import express from "express";
+import rateLimit from "express-rate-limit";
 
 // Route imports
 import authRoutes from "./routes/authRoutes.js";
@@ -61,23 +62,49 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Routes
-app.use("/api/auth", authRoutes);
-app.use("/api/patients", patientRoutes);
-app.use("/api/doctors", doctorRoutes);
-app.use("/api/hospitals", hospitalRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api/helpdesk", helpDeskRoutes);
-app.use("/api/ai", aiRoutes);
-app.use("/api/bookings", bookingRoutes);
-app.use("/api/prescriptions", prescriptionRoutes);
-app.use("/api/prescriptions", prescriptionPDFRoutes);
-app.use("/api/reports", reportRoutes);
-app.use("/api/messages", messageRoutes);
-app.use("/api/leaves", leaveRoutes);
-app.use("/api/notes", noteRoutes);
-app.use("/api/notifications", notificationRoutes);
-app.use("/api/support", supportRoutes);
+// Rate Limiting Configuration
 
-app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+// General Limiter: 100 requests per 15 minutes
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    message: { status: 429, error: "Too many requests, please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req, res) => process.env.NODE_ENV === 'test', // Disable in tests
+});
+
+// Auth Limiter: 10 requests per minute (stricter for login/OTP)
+const authLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000,
+    max: 10,
+    message: { status: 429, error: "Too many login attempts, please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req, res) => process.env.NODE_ENV === 'test', // Disable in tests
+});
+
+// Routes
+// Apply Auth Limiter to Auth routes
+app.use("/api/auth", authLimiter, authRoutes);
+
+// Apply General Limiter to all other routes
+app.use("/api/patients", generalLimiter, patientRoutes);
+app.use("/api/doctors", generalLimiter, doctorRoutes);
+app.use("/api/hospitals", generalLimiter, hospitalRoutes);
+app.use("/api/admin", generalLimiter, adminRoutes);
+app.use("/api/helpdesk", generalLimiter, helpDeskRoutes);
+app.use("/api/ai", generalLimiter, aiRoutes);
+app.use("/api/bookings", generalLimiter, bookingRoutes);
+app.use("/api/prescriptions", generalLimiter, prescriptionRoutes);
+app.use("/api/prescriptions", generalLimiter, prescriptionPDFRoutes);
+app.use("/api/reports", generalLimiter, reportRoutes);
+app.use("/api/messages", generalLimiter, messageRoutes);
+app.use("/api/leaves", generalLimiter, leaveRoutes);
+app.use("/api/notes", generalLimiter, noteRoutes);
+app.use("/api/notifications", generalLimiter, notificationRoutes);
+app.use("/api/support", generalLimiter, supportRoutes);
+
+app.get("/api/health", generalLimiter, (req, res) => res.json({ status: "ok" }));
 
 export { app, server };

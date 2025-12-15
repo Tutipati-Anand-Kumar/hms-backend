@@ -1,0 +1,36 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 60
+      arrivalRate: 5
+      name: "Warm up"
+    - duration: 120
+      arrivalRate: 10
+      name: "Sustained load"
+  plugins:
+    ensure: {}
+    apdex: {}
+    metrics-by-endpoint: {}
+  apdex:
+    threshold: 100
+  ensure:
+    thresholds:
+      - http.response_time.p99: 100
+      - http.response_time.p95: 75
+scenarios:
+  - name: "Login Flow"
+    flow:
+      - log: "Logging in user..."
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "testdoctor@example.com" # Ensure this user exists in your DB or seed it
+            password: "password123"
+          capture:
+            - json: "$.token"
+              as: "token"
+      - log: "Authenticated with token: {{ token }}"
+      - get:
+          url: "/api/auth/profile" # Assuming there is a profile endpoint
+          headers:
+            Authorization: "Bearer {{ token }}"

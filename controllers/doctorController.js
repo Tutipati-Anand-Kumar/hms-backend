@@ -187,6 +187,7 @@ export const getPatientDetails = async (req, res) => {
       health: {
         conditions: patientProfile.conditions,
         allergies: patientProfile.allergies,
+        medicalHistory: patientProfile.medicalHistory,
         medications: patientProfile.medications,
       },
       history: appointments.map(app => ({
@@ -741,19 +742,19 @@ export const deleteQuickNote = async (req, res) => {
 export const getDoctorPatients = async (req, res) => {
   try {
     const userId = req.user._id;
-    console.log(`[getDoctorPatients] Requesting for User ID: ${userId}`);
+    // console.log(`[getDoctorPatients] Requesting for User ID: ${userId}`);
 
     // 1. Find the Doctor Profile to get the correct Doctor ID for Appointments
     const doctorProfile = await DoctorProfile.findOne({ user: userId });
 
     if (!doctorProfile) {
-      console.warn(`[getDoctorPatients] No Doctor Profile found for User ID: ${userId}`);
+      // console.warn(`[getDoctorPatients] No Doctor Profile found for User ID: ${userId}`);
       // If no profile, they can't have appointments as a doctor
       return res.json([]);
     }
 
     const doctorProfileId = doctorProfile._id;
-    console.log(`[getDoctorPatients] Found DoctorProfile ID: ${doctorProfileId}`);
+    // console.log(`[getDoctorPatients] Found DoctorProfile ID: ${doctorProfileId}`);
 
     // 2. Find ALL appointments for this doctor, sorted by date DESC (latest first)
     // We populate 'hospital' to ensure we have the ID to match against records if needed (though ID reference is enough)
@@ -778,13 +779,13 @@ export const getDoctorPatients = async (req, res) => {
       }
     }
 
-    console.log(`[getDoctorPatients] Found ${uniquePatientIds.length} unique patients`);
+    // console.log(`[getDoctorPatients] Found ${uniquePatientIds.length} unique patients`);
 
     // 4. Fetch Patient Profiles (containing hospitalRecords/MRN) AND User details
     const profiles = await PatientProfile.find({ user: { $in: uniquePatientIds } })
       .populate("user", "name mobile email");
 
-    console.log(`[getDoctorPatients] Found ${profiles.length} Patient Profiles`);
+    // console.log(`[getDoctorPatients] Found ${profiles.length} Patient Profiles`);
 
     // 5. Map to simple structure using the specific appointment data
     const patients = profiles.map(profile => {

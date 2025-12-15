@@ -1,0 +1,50 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 60
+      arrivalRate: 2
+      name: "Warm up"
+    - duration: 120
+      arrivalRate: 5
+      name: "Peak booking traffic"
+  plugins:
+    ensure: {}
+    apdex: {}
+  apdex:
+    threshold: 100
+  ensure:
+    thresholds:
+      - http.response_time.p99: 200 # Slightly looser for complex writes
+scenarios:
+  - name: "Book Appointment Flow"
+    flow:
+      - log: "Logging in patient..."
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "testpatient@example.com" # Ensure this user exists
+            password: "password123"
+          capture:
+            - json: "$.token"
+              as: "token"
+            - json: "$.user._id" # Adjust based on actual response structure
+              as: "patientId"
+      - log: "Fetching doctors..."
+      - get:
+          url: "/api/doctors?specialization=Cardiology"
+          headers:
+            Authorization: "Bearer {{ token }}"
+          capture:
+            - json: "$.data[0]._id" # dynamic capture of first doctor
+              as: "doctorId"
+      - log: "Booking appointment with Doctor {{ doctorId }}..."
+      - post:
+          url: "/api/bookings"
+          headers:
+            Authorization: "Bearer {{ token }}"
+          json:
+            doctorId: "{{ doctorId }}"
+            patientId: "{{ patientId }}"
+            date: "2025-12-20" # Future date
+            timeSlot: "10:00 AM" # Ensure logic allows this
+            reason: "Regular checkup"
