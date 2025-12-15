@@ -6,6 +6,7 @@ import Appointment from "../models/Appointment.js";
 import Prescription from "../models/Prescription.js";
 import Report from "../models/Report.js";
 import Leave from "../models/Leave.js";
+import cloudinary from "../config/cloudinary.js";
 
 export const getDoctorProfile = async (req, res) => {
   try {
@@ -227,8 +228,25 @@ export const uploadPhoto = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
     }
-    // Cloudinary middleware already uploaded the file, req.file.path contains the URL
-    res.json({ url: req.file.path });
+
+    // Upload to Cloudinary using stream (since we have buffer from memory storage)
+    const runUpload = () => {
+      return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          { folder: "doctors" }, // Optional: organize in a folder
+          (error, result) => {
+            if (error) return reject(error);
+            resolve(result);
+          }
+        );
+        uploadStream.end(req.file.buffer);
+      });
+    };
+
+    const result = await runUpload();
+
+    // Return the secure URL
+    res.json({ url: result.secure_url });
   } catch (err) {
     console.error("Upload error:", err);
     res.status(500).json({ message: "Upload failed" });
