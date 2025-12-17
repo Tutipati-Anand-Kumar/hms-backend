@@ -1,8 +1,5 @@
 import Report from "../models/Report.js";
 
-// @desc    Upload file handler (after multer processes the file)
-// @route   POST /api/reports/upload
-// @access  Private
 export const uploadFile = async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
@@ -14,10 +11,15 @@ export const uploadFile = async (req, res) => {
         // Use a stream upload since file is in memory (req.file.buffer)
         const uploadStream = (buffer) => {
             return new Promise((resolve, reject) => {
+                // User requested removing extension for upload
+                const originalName = req.file.originalname.replace(/\.[^/.]+$/, "");
                 const stream = cloudinary.uploader.upload_stream(
                     {
                         resource_type: "auto",
-                        folder: "hms_reports"
+                        folder: "hms_reports",
+                        public_id: originalName, // Force public_id without extension
+                        use_filename: true,
+                        unique_filename: false
                     },
                     (error, result) => {
                         if (error) return reject(error);
@@ -41,12 +43,9 @@ export const uploadFile = async (req, res) => {
     }
 };
 
-// @desc    Save report metadata to database
-// @route   POST /api/reports/save
-// @access  Private
 export const saveReport = async (req, res) => {
     try {
-        const { patientId, name, url, type, public_id, date, size, appointmentId } = req.body;
+        const { patientId, name, url, type, public_id, date, size, appointmentId, hospitalId } = req.body;
 
         if (!url) {
             console.error("Save Report Error: Missing URL in request body", req.body);
@@ -64,7 +63,9 @@ export const saveReport = async (req, res) => {
             type,
             public_id,
             date,
-            size
+            size,
+            appointment: appointmentId,
+            hospital: hospitalId
         });
 
         await report.save();
@@ -88,22 +89,82 @@ export const saveReport = async (req, res) => {
     }
 };
 
-// @desc    Get all reports for a specific patient
-// @route   GET /api/reports/patient/:patientId
-// @access  Private
 export const getPatientReports = async (req, res) => {
     try {
-        const reports = await Report.find({ patient: req.params.patientId }).sort({ date: -1 });
-        res.json(reports);
+        const reports = await Report.find({ patient: req.params.patientId }).sort({ date: -1 }).lean();
+        const cloudinary = (await import("../config/cloudinary.js")).default;
+
+        // Sign all report URLs for direct access
+        const signedReports = reports.map(report => {
+            try {
+                // Match resource type from URL (raw/image/video)
+                const resourceTypeMatch = report.url.match(/\/(raw|image|video)\//);
+                let resourceType = resourceTypeMatch ? resourceTypeMatch[1] : 'raw';
+
+                // Fallback: If not found in URL, infer from mime type (cautiously)
+                if (!resourceTypeMatch && (report.type.startsWith('image/') || report.type === 'application/pdf')) {
+                    resourceType = 'image';
+                }
+
+                // Parse details from stored URL (e.g., version, delivery type)
+                const urlParts = report.url.split('/');
+                const versionMatch = report.url.match(/v(\d+)/);
+                const version = versionMatch ? versionMatch[1] : undefined;
+
+                // Detect delivery type (upload/private/authenticated)
+                let deliveryType = 'upload'; // default
+                if (report.url.includes('/private/')) deliveryType = 'private';
+                if (report.url.includes('/authenticated/')) deliveryType = 'authenticated';
+
+                if (report.public_id) {
+                    // Start with stored public_id
+                    // ENCODE components to handle spaces (Cloudinary expects encoded ID in signature for URLs with %20)
+                    let publicIdToSign = report.public_id.split('/').map(p => encodeURIComponent(p)).join('/');
+
+                    const options = {
+                        resource_type: resourceType,
+                        type: deliveryType,
+                        version: version, // Include version for correct signature
+                        sign_url: true,
+                        secure: true,
+                        expires_at: Math.floor(Date.now() / 1000) + 3600 // 1 hour
+                    };
+
+                    // For PDFs stored as 'image', we must ensure the URL has .pdf extension.
+                    // If public_id doesn't have it, we add format: 'pdf'.
+                    if (resourceType === 'image' && report.type === 'application/pdf' && !publicIdToSign.endsWith('.pdf')) {
+                        options.format = 'pdf';
+                    }
+
+                    const signedUrl = cloudinary.url(publicIdToSign, options);
+
+                    // DEBUG: Log details for specific files to trace mismatches
+                    if (report.name.includes("DESIGNER") || report.name.includes("Text")) {
+                        console.log(`🔍 Signing Debug [${report.name}]:`);
+                        console.log(`   - Stored URL: ${report.url}`);
+                        console.log(`   - Public ID (DB): ${report.public_id}`);
+                        console.log(`   - ID to Sign: ${publicIdToSign}`);
+                        console.log(`   - Resource: ${resourceType}, Type: ${deliveryType}, Version: ${version}`);
+                        console.log(`   - Options:`, JSON.stringify(options));
+                        console.log(`   - Generated: ${signedUrl}`);
+                    }
+
+                    return { ...report, signedUrl };
+                }
+                return report;
+            } catch (e) {
+                console.error("Error signing report URL:", e);
+                return report;
+            }
+        });
+
+        res.json(signedReports);
     } catch (err) {
         console.error("Error fetching reports:", err);
         res.status(500).json({ message: "Server error" });
     }
 };
 
-// @desc    Delete a report
-// @route   DELETE /api/reports/:id
-// @access  Private
 export const deleteReport = async (req, res) => {
     try {
         const report = await Report.findById(req.params.id);
@@ -119,10 +180,6 @@ export const deleteReport = async (req, res) => {
     }
 };
 
-// @desc    Proxy PDF from Cloudinary to bypass CORS/auth issues
-// @route   GET /api/reports/proxy/:reportId
-// @access  Private
-
 export const proxyPDF = async (req, res) => {
     try {
         const { reportId } = req.params;
@@ -133,8 +190,6 @@ export const proxyPDF = async (req, res) => {
             return res.status(404).json({ message: "Report not found" });
         }
 
-        // 2. Verify user has permission to view this report
-        // Allow if user is the patient, or if user is admin/doctor
         const isOwner = report.patient.toString() === req.user.id;
         const isAuthorized = isOwner || req.user.role === 'admin' || req.user.role === 'doctor';
 
@@ -149,10 +204,10 @@ export const proxyPDF = async (req, res) => {
         console.log(`📄 Proxying PDF: ${report.name}`);
 
         let pdfResponse;
+        let fallbackSignedUrl = null;
 
         try {
-            // Attempt 1: Direct Fetch (Works for Public files)
-            // We access the stored URL directly
+
             console.log(`🔹 Attempt 1: Fetching public URL: ${report.url}`);
             pdfResponse = await axios.get(report.url, {
                 responseType: 'arraybuffer',
@@ -165,8 +220,6 @@ export const proxyPDF = async (req, res) => {
             console.log(`⚠️ Public fetch failed (${filesError.response?.status}). Attempt 2: Generating Signed URL...`);
 
             try {
-                // INTELLIGENT PARSING: Determine type and ID from the stored URL
-                // URL format: https://res.cloudinary.com/cloud_name/resource_type/type/vVERSION/folder/filename
                 const urlParts = report.url.split('/');
 
                 // Find resource_type (raw/image/video)
@@ -186,18 +239,12 @@ export const proxyPDF = async (req, res) => {
                             deliveryType = foundType;
                         }
                     }
-
-                    // Extract Public ID: Everything after the version (v12345)
-                    // If version is present (v + digits), skip it.
-                    // The rest of the path is the public_id.
                     const versionIndex = urlParts.findIndex(p => /^v\d+$/.test(p));
                     if (versionIndex !== -1 && versionIndex > resourceTypeIndex) {
                         // Public ID is everything after version
                         publicId = urlParts.slice(versionIndex + 1).join('/');
                     } else {
-                        // Fallback: assume everything after delivery type?
-                        // e.g. .../raw/upload/folder/file.pdf
-                        // If no version, use parts after delivery type
+
                         if (urlParts.length > resourceTypeIndex + 2) {
                             publicId = urlParts.slice(resourceTypeIndex + 2).join('/');
                         }
@@ -209,6 +256,7 @@ export const proxyPDF = async (req, res) => {
 
                 console.log(`🔍 Detected: ${resourceType}/${deliveryType}, ID: ${publicId}`);
 
+                // Try signing with inferred details
                 const signedUrl = cloudinary.url(publicId, {
                     resource_type: resourceType,
                     type: deliveryType,
@@ -216,6 +264,8 @@ export const proxyPDF = async (req, res) => {
                     secure: true,
                     expires_at: Math.floor(Date.now() / 1000) + 3600
                 });
+
+                fallbackSignedUrl = signedUrl;
 
                 console.log("🔐 Fetching Signed URL...");
                 pdfResponse = await axios.get(signedUrl, {
@@ -251,77 +301,43 @@ export const proxyPDF = async (req, res) => {
                     if (resourceDetails) {
                         console.log(`✅ Using verified details to sign... Details:`, JSON.stringify(resourceDetails, null, 2));
 
-                        // Try with returned type first
-                        try {
-                            // Fix for RAW files: Do not pass format if it's already in public_id
-                            // Cloudinary Admin API returns public_id with extension for RAW files.
-                            const options = {
-                                resource_type: resourceDetails.resource_type,
-                                type: resourceDetails.type,
-                                // version: resourceDetails.version, // <-- REMOVED version to avoid signature mismatch
-                                sign_url: true,
-                                secure: true,
-                                expires_at: Math.floor(Date.now() / 1000) + 3600
-                            };
+                        // Generate Verified URL
+                        const options = {
+                            resource_type: resourceDetails.resource_type,
+                            type: resourceDetails.type,
+                            version: resourceDetails.version, // <-- RESTORED: Version is crucial for signature matching
+                            sign_url: true,
+                            secure: true,
+                            expires_at: Math.floor(Date.now() / 1000) + 3600
+                        };
 
-                            // Only add format if it's NOT raw (e.g. images)
-                            if (resourceDetails.resource_type !== 'raw') {
-                                options.format = resourceDetails.format;
-                            }
-
-                            const verifiedUrl = cloudinary.url(resourceDetails.public_id, options);
-
-                            console.log("🔐 Fetching Verified URL (No Version):", verifiedUrl);
-                            pdfResponse = await axios.get(verifiedUrl, {
-                                responseType: 'arraybuffer',
-                                headers: { 'Accept': 'application/pdf' },
-                                timeout: 30000
-                            });
-                            console.log("✅ Verified fetch successful");
-                        } catch (verifiedError) {
-                            console.error(`❌ Verified fetch failed (${verifiedError.response?.status}). Attempting retry with 'authenticated' type...`);
-
-                            try {
-                                // Retry Strategy: Try 'authenticated' type (also without version)
-                                const authOptions = {
-                                    resource_type: resourceDetails.resource_type,
-                                    type: 'authenticated', // Force authenticated
-                                    // version: resourceDetails.version, // <-- REMOVED
-                                    sign_url: true,
-                                    secure: true,
-                                    expires_at: Math.floor(Date.now() / 1000) + 3600
-                                };
-
-                                // Only add format if it's NOT raw
-                                if (resourceDetails.resource_type !== 'raw') {
-                                    authOptions.format = resourceDetails.format;
-                                }
-
-                                const authUrl = cloudinary.url(resourceDetails.public_id, authOptions);
-                                console.log("🔐 Fetching Auth URL (No Version):", authUrl);
-
-                                pdfResponse = await axios.get(authUrl, {
-                                    responseType: 'arraybuffer',
-                                    headers: { 'Accept': 'application/pdf' },
-                                    timeout: 30000
-                                });
-                                console.log("✅ Authenticated fetch successful");
-                            } catch (retryError) {
-                                console.error(`❌ Auth Retry failed (${retryError.response?.status})`);
-                                throw retryError; // Propagate to trigger Admin API failure log
-                            }
+                        if (resourceDetails.resource_type !== 'raw') {
+                            options.format = resourceDetails.format;
                         }
 
+                        const verifiedUrl = cloudinary.url(resourceDetails.public_id, options);
+                        fallbackSignedUrl = verifiedUrl; // Update fallback
+
+                        console.log("🔐 Fetching Verified URL:", verifiedUrl);
+                        pdfResponse = await axios.get(verifiedUrl, {
+                            responseType: 'arraybuffer',
+                            headers: { 'Accept': 'application/pdf' },
+                            timeout: 30000
+                        });
+                        console.log("✅ Verified fetch successful");
                     } else {
                         throw new Error("Resource not found in Cloudinary (Admin API confirmed)");
                     }
                 } catch (adminError) {
                     console.error("❌ Admin API failed:", adminError.message);
 
-                    // FINAL RESORT: Redirect the user to the URL directly
-                    // This satisfies "ignore 401 status directly show preview" request
-                    // If the browser can open it (cached creds?), good. If not, it fails there.
-                    console.log("⚠️ Fallback to Direct Redirect");
+                    // FINAL RESORT: Redirect the user to the SIGNED URL directly
+                    if (fallbackSignedUrl) {
+                        console.log("⚠️ Fallback to Redirect (Signed URL)");
+                        return res.redirect(fallbackSignedUrl);
+                    }
+
+                    console.log("⚠️ Fallback to Direct Redirect (Unsigned)");
                     return res.redirect(report.url);
                 }
             }
@@ -342,9 +358,11 @@ export const proxyPDF = async (req, res) => {
 
     } catch (error) {
         console.error("❌ PDF Proxy Error:", error.message);
-        if (error.response) {
-            console.error(`Status: ${error.response.status}`);
+        // If we have a fallback URL and haven't sent headers, redirect.
+        if (!res.headersSent) {
+            const fallback = report.signedUrl || report.url; // Use signedUrl from DB or raw
+            console.log("⚠️ Detailed Error Fallback: Redirecting to", fallback);
+            return res.redirect(fallback);
         }
-        res.status(500).json({ message: "Failed to access PDF" });
     }
 };

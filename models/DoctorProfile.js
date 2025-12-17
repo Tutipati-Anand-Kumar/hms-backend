@@ -27,6 +27,7 @@ const doctorProfileSchema = new mongoose.Schema({
   experienceStart: Date,
   bio: String,
   profilePic: String, // URL to profile image
+  signature: { type: String, required: true }, // Signature Image URL
   quickNotes: [
     {
       text: { type: String, required: true },

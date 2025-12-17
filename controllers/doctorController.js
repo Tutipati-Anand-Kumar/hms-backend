@@ -43,6 +43,7 @@ export const updateDoctorProfile = async (req, res) => {
     if (req.body.qualifications) profile.qualifications = req.body.qualifications;
     if (req.body.experienceStart) profile.experienceStart = req.body.experienceStart;
     if (req.body.profilePic) profile.profilePic = req.body.profilePic;
+    if (req.body.signature) profile.signature = req.body.signature;
 
     // Handle Quick Notes (sanitized)
     if (req.body.quickNotes) {
@@ -151,6 +152,20 @@ export const getDoctorById = async (req, res) => {
 export const getPatientDetails = async (req, res) => {
   try {
     const { patientId } = req.params;
+    const callingUserId = req.user._id;
+    const isAdmin = ["admin", "super-admin"].includes(req.user.role);
+
+    let doctorHospitalIds = [];
+
+    if (!isAdmin) {
+      // 0. Fetch Requesting Doctor's Profile to get their Hospitals
+      const doctorProfile = await DoctorProfile.findOne({ user: callingUserId });
+      if (!doctorProfile) {
+        return res.status(403).json({ message: "Access denied: Not a doctor" });
+      }
+      // Extract IDs of hospitals the doctor is associated with
+      doctorHospitalIds = doctorProfile.hospitals.map(h => h.hospital.toString());
+    }
 
     // 1. Fetch Patient Profile (includes User details)
     const patientProfile = await PatientProfile.findOne({ user: patientId })
@@ -160,18 +175,62 @@ export const getPatientDetails = async (req, res) => {
       return res.status(404).json({ message: "Patient profile not found" });
     }
 
-    // 2. Fetch Appointments History
-    const appointments = await Appointment.find({ patient: patientId })
+    // 2. Fetch Appointments History (FILTERED)
+    const appointmentFilter = { patient: patientId };
+    if (!isAdmin) {
+      appointmentFilter.hospital = { $in: doctorHospitalIds };
+    }
+
+    const appointments = await Appointment.find(appointmentFilter)
       .populate("doctor", "name") // Doctor is now User ref
       .sort({ date: -1 });
 
-    // 3. Fetch Prescriptions
-    const prescriptions = await Prescription.find({ patient: patientId })
-      .populate("doctor", "name") // Doctor is now User ref
+    // 3. Fetch Prescriptions (FILTERED)
+    const allPrescriptions = await Prescription.find({ patient: patientId })
+      .populate("doctor", "name")
+      .populate("appointment") // Need appointment to check hospital
       .sort({ createdAt: -1 });
 
-    // 4. Fetch Reports
-    const reports = await Report.find({ patient: patientId }).sort({ date: -1 });
+    let prescriptions = allPrescriptions;
+
+    if (!isAdmin) {
+      // Filter in memory because of deep population check
+      prescriptions = allPrescriptions.filter(pres => {
+        // 1. If linked to an appointment at one of my hospitals -> SHOW
+        if (pres.appointment && pres.appointment.hospital && doctorHospitalIds.includes(pres.appointment.hospital.toString())) {
+          return true;
+        }
+        // 2. If I wrote it (even if unlinked or different hospital logic?) -> SHOW
+        if (pres.doctor && pres.doctor._id.toString() === callingUserId.toString()) {
+          return true;
+        }
+        // Hide otherwise
+        return false;
+      });
+    }
+
+    // 4. Fetch Reports (FILTERED)
+    // We populate 'appointment' to check its hospital if report.hospital is missing
+    const allReports = await Report.find({ patient: patientId })
+      .populate("appointment")
+      .sort({ date: -1 });
+
+    let reports = allReports;
+
+    if (!isAdmin) {
+      reports = allReports.filter(rep => {
+        // 1. Check Explicit Hospital Field
+        if (rep.hospital) {
+          return doctorHospitalIds.includes(rep.hospital.toString());
+        }
+        // 2. Check Linked Appointment Hospital
+        if (rep.appointment && rep.appointment.hospital) {
+          return doctorHospitalIds.includes(rep.appointment.hospital.toString());
+        }
+        // 3. If NO hospital info linked, assume it's a general patient report -> SHOW
+        return true;
+      });
+    }
 
     // 5. Construct Response
     const responseData = {

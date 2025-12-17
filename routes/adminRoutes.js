@@ -45,7 +45,7 @@ router.put("/me", protect, authorizeRoles("super-admin", "admin"), updateAdminPr
 
 router.post("/create-doctor", protect, authorizeRoles("super-admin", "admin"), createDoctor);
 router.post("/create-admin", protect, authorizeRoles("super-admin", "admin"), createAdmin);
-router.post("/create-helpdesk", protect, authorizeRoles("super-admin"), createHelpDesk);
+router.post("/create-helpdesk", protect, authorizeRoles("super-admin", "admin"), createHelpDesk);
 router.post("/create-hospital", protect, authorizeRoles("super-admin", "admin"), createHospital);
 router.post("/assign-helpdesk", protect, authorizeRoles("super-admin", "admin"), assignHelpdeskToHospital);
 

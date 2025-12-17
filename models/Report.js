@@ -28,6 +28,14 @@ const reportSchema = new mongoose.Schema({
     size: {
         type: Number
     },
+    appointment: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Appointment"
+    },
+    hospital: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Hospital"
+    },
     createdAt: {
         type: Date,
         default: Date.now

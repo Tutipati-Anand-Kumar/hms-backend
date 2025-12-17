@@ -8,6 +8,55 @@ import Leave from "../models/Leave.js";
 import { createNotification } from "./notificationController.js";
 import { generateSlots, isHourBlockFull } from "../utils/slotUtils.js";
 
+// --- BACKGROUND CLEANUP TASK (2 Minute Timeout) ---
+export const startAppointmentCleanupTask = (io) => {
+    // Check every 60 seconds
+    setInterval(async () => {
+        try {
+            const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+
+            // Find pending appointments created > 2 mins ago (and not yet confirmed/rejected)
+            // AND ensure they haven't been processed yet (you might want a flag, but if we delete, it's fine)
+            const expiredAppointments = await Appointment.find({
+                status: "pending",
+                createdAt: { $lt: twoMinutesAgo }
+            }).populate("patient");
+
+            if (expiredAppointments.length > 0) {
+                console.log(`Found ${expiredAppointments.length} expired pending appointments.`);
+            }
+
+            for (const app of expiredAppointments) {
+                // DELETE
+                await Appointment.findByIdAndDelete(app._id);
+
+                // NOTIFY PATIENT
+                if (app.patient) {
+                    const message = "Doctor is not available";
+
+                    // Create Notification Record
+                    await createNotification({ user: { _id: "SYSTEM" } }, { // Mock req object
+                        recipient: app.patient._id,
+                        sender: app.doctor, // or System
+                        type: "appointment_cancelled",
+                        message: message,
+                        relatedId: app._id // Note: ID might refer to deleted obj, but good for logs
+                    });
+
+                    // Emit Socket
+                    io.to(`patient_${app.patient._id}`).emit("appointment_cancelled", {
+                        appointmentId: app._id,
+                        message: message
+                    });
+                }
+            }
+        } catch (err) {
+            console.error("Error in appointment cleanup task:", err);
+        }
+    }, 60 * 1000);
+};
+
+
 // Book Appointment
 export const bookAppointment = async (req, res) => {
     try {
@@ -453,10 +502,12 @@ export const updateAppointmentStatus = async (req, res) => {
         if (!appointment) return res.status(404).json({ message: "Appointment not found" });
 
         // --- NOTIFICATIONS ---
+        const dateStr = new Date(appointment.date).toDateString();
+        const timeSlotStr = `${appointment.startTime} - ${appointment.endTime}`;
+
+        // --- NOTIFICATIONS ---
         // Notify Patient
         if (appointment.patient) {
-            const dateStr = new Date(appointment.date).toDateString();
-            const timeSlotStr = `${appointment.startTime} - ${appointment.endTime}`;
 
             let msg = "";
             let notifType = "appointment_status_change";
@@ -521,6 +572,20 @@ export const updateAppointmentStatus = async (req, res) => {
                 doctorName: fullAppointment?.doctor?.user?.name || "Doctor",
                 hospitalId: appointment.hospital?._id
             });
+
+            // Send specific event with message for toast
+            const targetRoom = `patient_${appointment.patient._id}`;
+            if (status === "confirmed") {
+                req.io.to(targetRoom).emit("appointment_confirmed", {
+                    appointmentId: id,
+                    message: `Your appointment on ${dateStr} at ${timeSlotStr} has been confirmed.`
+                });
+            } else if (status === "rejected" || status === "cancelled") {
+                req.io.to(targetRoom).emit("appointment_cancelled", {
+                    appointmentId: id,
+                    message: `Your appointment on ${dateStr} at ${timeSlotStr} was cancelled. ${reason ? `Reason: ${reason}` : ''}`
+                });
+            }
         }
 
         res.json({ message: `Appointment ${status}`, appointment });

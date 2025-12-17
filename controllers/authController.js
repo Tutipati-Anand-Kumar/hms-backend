@@ -202,55 +202,71 @@ export const login = async (req, res) => {
 
   try {
     let user;
+    // Check if identifier looks like a Doctor ID (Starts with DOC, case insensitive)
+    const isDoctorId = /^DOC/i.test(identifier);
 
-    // 1. Try finding user by Mobile OR Doctor ID
-    user = await User.findOne({
-      $or: [
-        { mobile: identifier },
-        { doctorId: identifier }
-      ]
-    });
+    if (isDoctorId) {
+      // 1. Doctor ID Login Path
+      user = await User.findOne({ doctorId: identifier });
 
-    if (user) {
-      // User found - Verify Password
-      const match = await bcrypt.compare(password, user.password);
-      if (!match) {
-        return res.status(401).json({ message: "Password is wrong" });
+      if (!user) {
+        return res.status(401).json({ message: "Doctor ID is wrong" });
       }
 
-      // Successful User Login
-      const accessToken = signAccessToken(user);
-      const refreshToken = await createRefreshToken(user);
+      // Optional: Ensure the found user is actually a doctor
+      if (user.role !== 'doctor') {
+        return res.status(401).json({ message: "Invalid Doctor ID access" });
+      }
 
-      return res.json({
-        tokens: { accessToken, refreshToken },
-        user: { id: user._id, name: user.name, role: user.role }
-      });
+    } else {
+      // 2. Mobile Number Login Path (Default)
+      user = await User.findOne({ mobile: identifier });
+
+      if (!user) {
+        // If not found in Users, check HelpDesk (Only supports mobile)
+        const helpdesk = await HelpDesk.findOne({ mobile: identifier });
+
+        if (helpdesk) {
+          // Verify HelpDesk password
+          const matchHd = await bcrypt.compare(password, helpdesk.password);
+          if (!matchHd) return res.status(401).json({ message: "Password is wrong" });
+
+          // Generate HelpDesk tokens
+          const accessToken = jwt.sign(
+            { id: helpdesk._id, role: "helpdesk", hospital: helpdesk.hospital },
+            process.env.JWT_SECRET,
+            { expiresIn: "15m" }
+          );
+          const refreshToken = await createRefreshToken(helpdesk);
+
+          return res.json({
+            tokens: { accessToken, refreshToken },
+            user: { id: helpdesk._id, name: helpdesk.name, role: "helpdesk", hospital: helpdesk.hospital }
+          });
+        }
+
+        // If neither User nor HelpDesk found
+        return res.status(401).json({ message: "Mobile number is wrong" });
+      }
     }
 
-    // 2. If not found in Users, try HelpDesk (usually mobile)
-    const helpdesk = await HelpDesk.findOne({ mobile: identifier });
-    if (helpdesk) {
-      // Verify HelpDesk password
-      const matchHd = await bcrypt.compare(password, helpdesk.password);
-      if (!matchHd) return res.status(401).json({ message: "Password is wrong" });
+    // 3. User Found (Doctor or Patient) - Verify Password
+    // Check constraint: "apart from the doctor all other roles must... login with phone number only"
+    // If we found them via DoctorID, they are a Doctor (enforced above).
+    // If we found them via Mobile, both Patients and Doctors are allowed to use Mobile.
 
-      // Generate HelpDesk tokens
-      const accessToken = jwt.sign(
-        { id: helpdesk._id, role: "helpdesk", hospital: helpdesk.hospital },
-        process.env.JWT_SECRET,
-        { expiresIn: "15m" }
-      );
-      const refreshToken = await createRefreshToken(helpdesk);
-
-      return res.json({
-        tokens: { accessToken, refreshToken },
-        user: { id: helpdesk._id, name: helpdesk.name, role: "helpdesk", hospital: helpdesk.hospital }
-      });
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      return res.status(401).json({ message: "Password is wrong" });
     }
 
-    // 3. User not found
-    return res.status(401).json({ message: "Mobile number is wrong" });
+    const accessToken = signAccessToken(user);
+    const refreshToken = await createRefreshToken(user);
+
+    return res.json({
+      tokens: { accessToken, refreshToken },
+      user: { id: user._id, name: user.name, role: user.role }
+    });
 
   } catch (err) {
     console.error("Login error:", err);
