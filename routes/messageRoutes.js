@@ -1,5 +1,5 @@
 import express from "express";
-import { sendMessage, getMessages, getConversations, deleteMessage, editMessage } from "../controllers/messageController.js";
+import { sendMessage, getMessages, getConversations, deleteMessage, editMessage, toggleReaction } from "../controllers/messageController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
@@ -10,5 +10,6 @@ router.get("/conversations", protect, getConversations);
 
 router.put("/:messageId", protect, editMessage);
 router.delete("/:messageId", protect, deleteMessage);
+router.post("/:messageId/react", protect, toggleReaction);
 
 export default router;

@@ -80,8 +80,67 @@ const populateMessages = async (messages) => {
 // Send Message
 export const sendMessage = async (req, res) => {
     try {
-        const { receiverId, content, hospitalId, replyTo } = req.body;
+        let { receiverId, content, hospitalId, replyTo } = req.body;
         const senderId = req.user._id;
+
+        // --- INFER HOSPITAL ID IF MISSING ---
+        if (!hospitalId) {
+            // 1. If sender is HelpDesk, use their hospital from req.user (set in authMiddleware)
+            if (req.user.role === 'helpdesk' && req.user.hospital) {
+                hospitalId = req.user.hospital;
+            }
+            // 2. If sender is Doctor, fetch profile to find hospital
+            else if (req.user.role === 'doctor') {
+                try {
+                    const DoctorProfile = (await import("../models/DoctorProfile.js")).default;
+                    const docProfile = await DoctorProfile.findOne({ user: senderId });
+                    if (docProfile && docProfile.hospitals && docProfile.hospitals.length > 0) {
+                        // Default to the first hospital if not specified
+                        // In a multi-hospital scenario, the frontend SHOULD send it, but this is a fallback
+                        hospitalId = docProfile.hospitals[0].hospital;
+                    }
+                } catch (err) {
+                    console.error("Error inferring hospital for doctor:", err);
+                }
+            }
+            // 3. Optional: If input is from Patient, infer from Receiver (Doctor/HelpDesk)
+            else if (req.user.role === 'patient') {
+                // For now, let's assume the patient is replying to a context where the hospital is implicit
+                // But strictly speaking, the patient doesn't "belong" to a hospital in the same way for a message
+                // unless the message is TO a specific entity.
+                try {
+                    const User = (await import("../models/User.js")).default;
+                    // Check receiver role
+                    const receiverUser = await User.findById(receiverId);
+
+                    if (receiverUser) {
+                        if (receiverUser.role === 'doctor') {
+                            const DoctorProfile = (await import("../models/DoctorProfile.js")).default;
+                            const docProfile = await DoctorProfile.findOne({ user: receiverId });
+                            if (docProfile?.hospitals?.[0]?.hospital) {
+                                hospitalId = docProfile.hospitals[0].hospital;
+                            }
+                        }
+                    } else {
+                        // Might be HelpDesk (which is in a separate collection, potentially)
+                        // But in this system, HelpDesk users are in 'HelpDesk' collection, but auth tokens might unify IDs?
+                        // messageController.js imports HelpDesk model.
+                        const destHelpDesk = await HelpDesk.findById(receiverId);
+                        if (destHelpDesk && destHelpDesk.hospital) {
+                            hospitalId = destHelpDesk.hospital;
+                        }
+                    }
+                } catch (err) {
+                    console.error("Error inferring hospital for patient:", err);
+                }
+            }
+        }
+
+        if (!hospitalId) {
+            console.warn("Message validation warning: Hospital ID could not be inferred.");
+            // We allow mongoose to throw the validation error if it's still missing and required
+        }
+        // -------------------------------------
 
         const message = await Message.create({
             sender: senderId,
@@ -293,6 +352,49 @@ export const deleteMessage = async (req, res) => {
         res.json({ message: "Message deleted for you" });
     } catch (err) {
         console.error("Delete Message Error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
+// Toggle Reaction
+export const toggleReaction = async (req, res) => {
+    try {
+        const { messageId } = req.params;
+        const { emoji } = req.body;
+        const currentUserId = req.user._id;
+
+        const message = await Message.findById(messageId);
+        if (!message) return res.status(404).json({ message: "Message not found" });
+
+        // Check availability of reaction from this user
+        const existingIndex = message.reactions.findIndex(r => r.user.toString() === currentUserId.toString());
+
+        if (existingIndex > -1) {
+            // If same emoji, remove it (toggle off)
+            if (message.reactions[existingIndex].emoji === emoji) {
+                message.reactions.splice(existingIndex, 1);
+            } else {
+                // Change emoji
+                message.reactions[existingIndex].emoji = emoji;
+            }
+        } else {
+            // Add new reaction
+            message.reactions.push({ user: currentUserId, emoji });
+        }
+
+        await message.save();
+
+        const populatedMessages = await populateMessages([message]);
+        const fullMessage = populatedMessages[0];
+
+        if (req.io) {
+            req.io.to(message.receiver.toString()).emit("message_updated", fullMessage);
+            req.io.to(message.sender.toString()).emit("message_updated", fullMessage);
+        }
+
+        res.json(fullMessage);
+    } catch (err) {
+        console.error("Reaction Error:", err);
         res.status(500).json({ message: "Server error" });
     }
 };

@@ -40,7 +40,11 @@ const messageSchema = new mongoose.Schema({
     isDeleted: {
         type: Boolean,
         default: false
-    }
+    },
+    reactions: [{
+        user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        emoji: String
+    }]
 }, { timestamps: true });
 
 export default mongoose.model("Message", messageSchema);
